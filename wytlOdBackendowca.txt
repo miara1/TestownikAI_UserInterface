@@ -1,0 +1,287 @@
+Dobra, to opowiem to tak, żeby Twój frontendowiec od razu wiedział „co wchodzi, co wychodzi i gdzie to wsadzić” 😄
+
+---
+
+## 1. Ogólny obraz – jak to działa od strony usera
+
+Cały backend to *FastAPI* z kilkoma endpointami HTTP: /upload, /search, /gen/yn, /gen/mcq, /rate.
+
+Flow z punktu widzenia aplikacji:
+
+1. *User wrzuca pliki z materiałami* (PDF, PPTX, DOCX, EPUB) → frontend robi POST /upload z plikami.
+2. Backend:
+
+   * czyta te pliki,
+   * tnie tekst na kawałki (chunki),
+   * robi embeddingi (sentence-transformers),
+   * zapisuje wszystko w SQLite.
+3. *User chce pytanie* → frontend woła:
+
+   * POST /gen/mcq (pytanie ABCD) albo
+   * POST /gen/yn (pytanie TAK/NIE),
+     z tematem i poziomem trudności.
+4. Backend:
+
+   * szuka najlepszych fragmentów tekstu pasujących do tematu (RAG),
+   * pyta model LLM „wygeneruj pytanie na podstawie tych fragmentów i zwróć czysty JSON”,
+   * zapisuje pytanie + cytaty w bazie,
+   * odsyła do frontu gotowy JSON z pytaniem.
+5. *User odpowiada w UI* → frontend:
+
+   * porównuje odpowiedź usera z polem answer z backendu (którego na UI nie pokazuje od razu),
+   * po pokazaniu odpowiedzi i wyjaśnienia może wysłać ocenę pytania POST /rate (1–10, plus komentarz).
+
+---
+
+## 2. Konkretnie: endpointy i kontrakty dla frontu
+
+### 2.1 /upload – wrzucanie materiałów
+
+*Metoda:* POST /upload
+*Body:* multipart/form-data z polem files (lista plików).
+
+Przykład (pseudo):
+
+const form = new FormData();
+files.forEach(f => form.append("files", f));
+
+fetch("http://localhost:8000/upload", {
+  method: "POST",
+  body: form,
+});
+
+*Response (JSON):*
+
+{
+  "ingested": [
+    { "file": "Wykład1.pdf", "chunks": 42 },
+    { "file": "Wykład2.pdf", "chunks": 37 }
+  ]
+}
+
+Backend:
+
+* wykrywa typ pliku,
+* wyciąga tekst stron,
+* tnie na chunki,
+* robi embeddingi,
+* zapisuje do tabel sources, chunks itd.
+
+*Co ma zrobić frontend:*
+
+* pozwolić użytkownikowi wybrać kilka plików,
+* po wrzuceniu pokazać np. listę „plik X → Y chunków w indeksie”.
+
+---
+
+### 2.2 /search – podgląd kontekstu (debug / przyszłe featury)
+
+*Metoda:* POST /search
+*Body (JSON):*
+
+{
+  "query": "sieci neuronowe",
+  "k": 5
+}
+
+k – ile najlepszych fragmentów ma zwrócić.
+
+*Response (JSON):*
+
+{
+  "results": [
+    {
+      "chunk_id": 123,
+      "source_id": 1,
+      "source": "Wykład1.pdf",
+      "page": 4,
+      "quote": "Sieć neuronowa to model obliczeniowy inspirowany...",
+      "text": "Pełny tekst fragmentu ...",
+      "score": 0.87
+    },
+    ...
+  ]
+}
+
+*Co ma zrobić frontend:*
+
+* To jest raczej narzędzie „dla nas” – można zrobić np. zakładkę debug:
+
+  * input na zapytanie,
+  * lista fragmentów z nazwą pliku, stroną i cytatem.
+
+Nie jest konieczne do podstawowego działania quizu.
+
+---
+
+### 2.3 /gen/yn – generowanie pytania TAK/NIE
+
+*Metoda:* POST /gen/yn
+*Body (JSON):*
+
+{
+  "topic": "uczenie nadzorowane",
+  "difficulty": "medium"
+}
+
+topic jest opcjonalny, jak nie podasz, backend użyje jakiegoś ogólnego „przegląd materiału”.
+
+*Response (JSON):*
+
+{
+  "question_id": "uuid-1234-...",
+  "question": {
+    "kind": "YN",
+    "stem": "Czy uczenie nadzorowane wymaga zestawu danych z etykietami?",
+    "answer": "TAK",
+    "explanation": "Uczenie nadzorowane korzysta z par (wejście, etykieta) ...",
+    "metadata": {
+      "topic": "uczenie nadzorowane",
+      "difficulty": "medium",
+      "timestamp": "2025-11-24T12:34:56Z"
+    },
+    "citations": [
+      {
+        "source": "Wykład1.pdf",
+        "page": 5,
+        "quote": "W uczeniu nadzorowanym zakładamy dostęp do danych z etykietami..."
+      }
+    ]
+  }
+}
+
+*Co ma zrobić frontend:*
+
+* Zapamiętać question_id (przyda się do ratingu).
+* Wyświetlić:
+
+  * question.stem jako treść pytania,
+  * przyciski „TAK” / „NIE”.
+* *Nie pokazywać* od razu pola answer ani explanation – trzymasz to w stanie frontu.
+* Po wybraniu odpowiedzi usera:
+
+  * porównujesz z question.answer,
+  * pokazujesz, czy było dobrze,
+  * wyświetlasz question.explanation i ewentualnie listę citations jako „Źródła”.
+
+---
+
+### 2.4 /gen/mcq – generowanie pytania ABCD
+
+*Metoda:* POST /gen/mcq
+*Body (JSON):* taki sam jak wyżej (topic, difficulty).
+
+*Response (JSON):*
+
+{
+  "question_id": "uuid-5678-...",
+  "question": {
+    "kind": "MCQ",
+    "stem": "Które stwierdzenie o perceptronie jest prawdziwe?",
+    "options": [
+      "a) Perceptron to jednokierunkowa sieć neuronowa z jedną warstwą wyjściową.",
+      "b) ...",
+      "c) ...",
+      "d) ..."
+    ],
+    "answer": "a",
+    "explanation": "Perceptron ma jedną warstwę wyjściową, a...",
+    "metadata": { "...": "..." },
+    "citations": [ ... ]
+  }
+}
+
+*Co ma zrobić frontend:*
+
+* Znowu: trzymasz question_id.
+* Pokaż:
+
+  * stem jako treść pytania,
+  * options jako listę przycisków/RadioButtonów.
+* answer jest np. "a" – *ukrywasz* dopóki user nie kliknie odpowiedzi.
+* Po wybraniu:
+
+  * sprawdzasz, czy indeks/label odpowiedzi zgadza się z answer,
+  * pokazujesz wynik + explanation + ewentualne źródła (citations).
+
+---
+
+### 2.5 /rate – ocenianie jakości pytania
+
+*Metoda:* POST /rate
+*Body (JSON):*
+
+{
+  "question_id": "uuid-5678-...",
+  "score": 9,
+  "feedback": "Spoko pytanie, ale mogłoby być krótsze."
+}
+
+score jest normalizowany w backendzie do zakresu 1–10.
+
+*Response (JSON):*
+
+{ "ok": true }
+
+Backend zapisuje ocenę w tabeli ratings i na jej podstawie podbija/obniża wagi chunków w chunk_weights, co wpływa na przyszłe wyszukiwanie (dobre fragmenty częściej trafiają do kontekstu, słabe – rzadziej).
+
+*Co ma zrobić frontend:*
+
+* Po pokazaniu poprawnej odpowiedzi możesz wyświetlić prosty slider / gwiazdki 1–10.
+* Po wysłaniu /rate nie musisz nic więcej – backend ogarnia „uczenie się”.
+
+---
+
+## 3. Jak działa AI / RAG „pod maską” (żeby kolega wiedział co to robi, nie jak napisać)
+
+1. **Ingest plików (/upload):**
+
+   * Rozpoznanie formatu (PDF, PPTX, DOCX, EPUB) i wyciągnięcie tekstu.
+   * Pocięcie tekstu na kawałki (chunki) o długości ~1100 znaków z overlapem 200, żeby nie urwać zdań.
+   * Dla każdego chunka liczy się embedding wektorowy modelem sentence-transformers/all-MiniLM-L6-v2.
+   * Wszystko ląduje w SQLite: tabele sources, chunks.
+
+2. **RAG search (rag_search):**
+
+   * Gdy prosisz o pytanie z tematem "uczenie nadzorowane", backend najpierw embeduje to zapytanie tym samym modelem.
+   * Liczy cosinus similarity z każdym chunkiem (mat @ qv).
+   * Wynik mnoży przez (1 + weight) gdzie weight bierze się z ocen chunków (chunk_weights). Dobre fragmenty mają większy wpływ.
+   * Zwraca top-k kontekstów – to jest wejście do LLM.
+
+3. *LLM:*
+
+   * gen_yes_no i gen_mcq robią prompt typu: „Użyj wyłącznie poniższych fragmentów i zwróć JSON `{...}`”.
+   * Provider LLM jest wybierany przez settings.llm_provider (openai albo ollama, albo none → wtedy fallback heurystyczny).
+   * Frontend *nie musi tego ogarniać* – po prostu dostaje już gotowy JSON z pytaniem.
+
+---
+
+## 4. Co frontend musi ogarnąć praktycznie (checklista)
+
+1. *Konfiguracja base URL* – np. "http://127.0.0.1:8000" (jest w settings.host/port po stronie backendu).
+2. *Ekran „Materiały”:*
+
+   * input type="file" z opcją wielu plików,
+   * POST /upload,
+   * wyświetlenie info o zaindeksowanych plikach.
+3. *Ekran „Quiz”:*
+
+   * wybór typu pytania (YN / MCQ),
+   * pole „topic” i drop difficulty,
+   * request do /gen/yn lub /gen/mcq,
+   * zapis question_id + question w stanie.
+4. *Ekran pytania:*
+
+   * wyświetlanie stem + odpowiednich opcji (TAK/NIE albo ABCD z options),
+   * przy kliknięciu:
+
+     * sprawdzenie odpowiedzi lokalnie vs answer,
+     * pokazanie feedbacku + explanation + citations.
+5. *Ekran ratingu:*
+
+   * slider/gwiazdki 1–10,
+   * po kliknięciu wysyłasz POST /rate z question_id + score + opcjonalnym feedback.
+
+To tyle – z frontu patrzysz na to jak na *prostą API do generowania pytań z JSON-em*, a cała magia RAG + LLM + SQLite dzieje się po drugiej stronie i nie musisz jej dotykać 💾🧠
+
+Jak chcesz, mogę Ci jeszcze rozpisać gotowe typy w TypeScripcie (QuestionYN, QuestionMCQ, GenRequest, itp.), żebyś mógł je sobie wkleić do frontu.
