@@ -11,6 +11,9 @@ export type StoredQuestion = QuestionWrapper & {
   _userAnswer?: string
   _isCorrect?: boolean
   _answeredAt?: string
+  _lastRate?: number
+  _lastFeedback?: string
+  _ratedAt?: string
 }
 
 function getTopic(q: QuestionWrapper): string {
@@ -220,6 +223,71 @@ export async function resetTopicProgress(topic: string): Promise<void> {
     }
 
     req.onerror = () => reject(req.error)
+  })
+
+  db.close()
+  window.dispatchEvent(new Event('questions-updated'))
+}
+
+export async function setLocalRating(
+  questionId: string,
+  score: number,
+  feedback?: string | null
+): Promise<void> {
+  const db = await openDb()
+
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite')
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+
+    const store = tx.objectStore(STORE)
+    const getReq = store.get(questionId)
+
+    getReq.onsuccess = () => {
+      const item = getReq.result as StoredQuestion | undefined
+      if (!item) return
+
+      item._lastRate = score
+      if (feedback && feedback.trim().length > 0) item._lastFeedback = feedback.trim()
+      item._ratedAt = new Date().toISOString()
+
+      store.put(item)
+    }
+
+    getReq.onerror = () => reject(getReq.error)
+  })
+
+  db.close()
+  window.dispatchEvent(new Event('questions-updated'))
+}
+
+export async function deleteQuestion(questionId: string): Promise<void> {
+  const db = await openDb()
+
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite')
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+
+    const store = tx.objectStore(STORE)
+
+    // Usuwanie kursorem po value.question_id – działa nawet gdy keyPath jest inny
+    const req = store.openCursor()
+    req.onerror = () => reject(req.error)
+
+    req.onsuccess = () => {
+      const cursor = req.result
+      if (!cursor) return
+
+      const v = cursor.value as { question_id?: string }
+      if (v?.question_id === questionId) {
+        cursor.delete()
+        // Nie musimy dalej szukać, ale można:
+        // return;  // zostawimy continue – bezpieczne
+      }
+      cursor.continue()
+    }
   })
 
   db.close()

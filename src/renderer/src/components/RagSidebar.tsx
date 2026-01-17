@@ -174,7 +174,7 @@ export function RagSidebar({ onOutput }: RagSidebarProps) {
 
       {/* wybór endpointu */}
       <div className="flex flex-col gap-1">
-        <span className="text-xs text-slate-400">Endpoint</span>
+        <span className="text-xs text-slate-400">Rodzaj pytań</span>
         <div className="flex flex-col gap-1">
           <button
             className={twMerge(

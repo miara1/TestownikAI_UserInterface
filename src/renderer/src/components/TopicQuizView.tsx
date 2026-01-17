@@ -1,8 +1,15 @@
 // src/renderer/src/components/TopicQuizView.tsx
 import { useEffect, useMemo, useState } from 'react'
 import beerImg from '../assets/beer.png'
+import { rateQuestion } from '../ragApi'
 import type { StoredQuestion } from '../utils/questionsDb'
-import { getQuestionsByTopic, resetTopicProgress, setUserAnswer } from '../utils/questionsDb'
+import {
+  deleteQuestion,
+  getQuestionsByTopic,
+  resetTopicProgress,
+  setLocalRating,
+  setUserAnswer
+} from '../utils/questionsDb'
 
 type Props = {
   topic: string
@@ -25,6 +32,10 @@ export function TopicQuizView({ topic, onBack }: Props) {
   const [showSummary, setShowSummary] = useState(false)
   const [summaryDismissed, setSummaryDismissed] = useState(false)
 
+  const [ratingBusy, setRatingBusy] = useState(false)
+  const [ratingFeedback, setRatingFeedback] = useState('')
+  const [ratingError, setRatingError] = useState<string | null>(null)
+
   // per pytanie - stan „klikniętego” w UI (od razu też zapisujemy do DB)
   const current = questions[idx]
 
@@ -45,6 +56,11 @@ export function TopicQuizView({ topic, onBack }: Props) {
     setSummaryDismissed(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [topic])
+
+  useEffect(() => {
+    setRatingFeedback(current?._lastFeedback ?? '')
+    setRatingError(null)
+  }, [current?.question_id])
 
   const finishAndReturn = async () => {
     setShowSummary(false)
@@ -68,12 +84,12 @@ export function TopicQuizView({ topic, onBack }: Props) {
     return Math.round((correctCount / progress.total) * 100)
   }, [correctCount, progress.total])
 
-  useEffect(() => {
-    const done = progress.total > 0 && progress.answered === progress.total
-    if (done && !summaryDismissed) {
-      setShowSummary(true)
-    }
-  }, [progress.answered, progress.total, summaryDismissed])
+  // useEffect(() => {
+  //   const done = progress.total > 0 && progress.answered === progress.total
+  //   if (done && !summaryDismissed) {
+  //     setShowSummary(true)
+  //   }
+  // }, [progress.answered, progress.total, summaryDismissed])
 
   const answered = !!current?._answeredAt
   const correctNorm = current ? normalizeAnswer(current.question.answer) : ''
@@ -104,6 +120,55 @@ export function TopicQuizView({ topic, onBack }: Props) {
     setQuestions(qs)
   }
 
+  const handleRate = async (score: number) => {
+    if (!current) return
+
+    // clamp 1..10
+    const clamped = Math.max(1, Math.min(10, score))
+
+    setRatingBusy(true)
+    setRatingError(null)
+
+    try {
+      // 1) backend
+      await rateQuestion(current.question_id, clamped, ratingFeedback || null)
+
+      // 2) local DB (dla pokazywania ostatniego rate)
+      await setLocalRating(current.question_id, clamped, ratingFeedback || null)
+
+      // 3) odśwież pytania, żeby current miał _lastRate
+      const qs = await getQuestionsByTopic(topic)
+      setQuestions(qs)
+    } catch (e) {
+      setRatingError((e as Error).message ?? 'rate_failed')
+    } finally {
+      setRatingBusy(false)
+    }
+  }
+
+  const handleDeleteCurrent = async () => {
+    if (!current) return
+
+    const ok = window.confirm('Usunąć to pytanie z tego folderu? Tej operacji nie da się cofnąć.')
+    if (!ok) return
+    console.log('Deleting question_id:', current.question_id)
+
+    await deleteQuestion(current.question_id)
+
+    const qs = await getQuestionsByTopic(topic)
+    console.log('Questions after delete:', qs.length)
+
+    if (qs.length === 0) {
+      // folder pusty -> wróć do panelu głównego
+      onBack()
+      return
+    }
+
+    setQuestions(qs)
+    // zostajemy na tym samym indeksie, ale pilnujemy zakresu
+    setIdx((prev) => Math.min(prev, qs.length - 1))
+  }
+
   const goPrev = () => setIdx((v) => Math.max(0, v - 1))
   const goNext = () => setIdx((v) => Math.min(questions.length - 1, v + 1))
 
@@ -128,10 +193,24 @@ export function TopicQuizView({ topic, onBack }: Props) {
           <div className="font-semibold truncate">{topic}</div>
           <div className="text-xs text-slate-400">
             Postęp: {progress.answered}/{progress.total}
+            {current && <> </>}
           </div>
         </div>
 
+        {progress.total > 0 && progress.answered === progress.total && (
+          <span className="ml-2 text-xs text-emerald-400">Ukończono</span>
+        )}
+
         <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => setShowSummary(true)}
+            disabled={progress.total === 0 || progress.answered !== progress.total}
+            className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm disabled:opacity-50"
+            title="Dostępne po udzieleniu odpowiedzi na wszystkie pytania"
+          >
+            Pokaż wynik
+          </button>
+
           <button
             onClick={goPrev}
             disabled={idx === 0}
@@ -139,12 +218,22 @@ export function TopicQuizView({ topic, onBack }: Props) {
           >
             Poprzednie
           </button>
+
           <button
             onClick={goNext}
             disabled={idx >= questions.length - 1}
             className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm disabled:opacity-50"
           >
             Następne
+          </button>
+
+          <button
+            onClick={() => void handleDeleteCurrent()}
+            disabled={!current}
+            className="px-3 py-1.5 rounded bg-red-900/40 hover:bg-red-900/60 border border-red-800 text-sm disabled:opacity-50"
+            title="Usuń to pytanie z folderu"
+          >
+            Usuń pytanie
           </button>
         </div>
       </div>
@@ -163,7 +252,8 @@ export function TopicQuizView({ topic, onBack }: Props) {
           <div className="flex flex-col gap-4">
             <div className="text-xs text-slate-400">
               {idx + 1} / {questions.length} • typ: {current.question.kind} • trudność:{' '}
-              {String((current.question.metadata as any)?.difficulty ?? '—')}
+              {String((current.question.metadata as any)?.difficulty ?? '—')} • rate:{' '}
+              {current._lastRate ? `${current._lastRate}/10` : '—'}
             </div>
 
             <div className="text-base font-semibold leading-snug">{current.question.stem}</div>
@@ -267,6 +357,43 @@ export function TopicQuizView({ topic, onBack }: Props) {
           </div>
         )}
       </div>
+
+      {current && (
+        <div className="flex items-center gap-3 rounded border border-slate-800 bg-slate-950 p-3">
+          <div className="text-sm text-slate-200 whitespace-nowrap">Oceń pytanie:</div>
+
+          <div className="flex flex-wrap gap-2">
+            {Array.from({ length: 10 }, (_, i) => i + 1).map((s) => (
+              <button
+                key={s}
+                disabled={ratingBusy}
+                onClick={() => void handleRate(s)}
+                className={[
+                  'px-3 py-1.5 rounded border text-sm',
+                  current._lastRate === s
+                    ? 'border-emerald-500 bg-emerald-600/20'
+                    : 'border-slate-700 bg-slate-900 hover:bg-slate-800',
+                  ratingBusy ? 'opacity-50 cursor-default' : ''
+                ].join(' ')}
+                title="Wyślij ocenę do backendu"
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+
+          <input
+            value={ratingFeedback}
+            onChange={(e) => setRatingFeedback(e.target.value)}
+            disabled={ratingBusy}
+            placeholder="(opcjonalnie) komentarz…"
+            className="ml-auto w-[min(360px,40vw)] px-3 py-1.5 rounded bg-slate-950 border border-slate-800 text-sm"
+          />
+
+          {ratingError && <div className="text-xs text-red-400 ml-2">{ratingError}</div>}
+        </div>
+      )}
+
       {showSummary && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/60" onClick={() => void finishAndReturn()} />

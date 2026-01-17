@@ -137,6 +137,16 @@ export interface ClearSourcesRes {
   removed_files: number
 }
 
+export interface RateReq {
+  question_id: string
+  score: number
+  feedback?: string | null
+}
+
+export interface RateRes {
+  ok: boolean
+}
+
 // ===== funkcje API =====
 
 export function searchRag(query: string, k = 5): Promise<SearchRes> {
@@ -162,6 +172,15 @@ export function genYn(
 ): Promise<GenResponse> {
   const req: GenReq = { topic, difficulty, n, provider }
   return postJson<GenReq, GenResponse>('/gen/yn', req)
+}
+
+export function rateQuestion(
+  question_id: string,
+  score: number,
+  feedback?: string | null
+): Promise<RateRes> {
+  const req: RateReq = { question_id, score, feedback: feedback ?? null }
+  return postJson<RateReq, RateRes>('/rate', req)
 }
 
 export async function uploadFiles(files: File[]): Promise<UploadResponse> {
