@@ -12,7 +12,8 @@ export function ResponseViewer({ value, className, ...props }: ResponseViewerPro
       readOnly
       value={value}
       className={twMerge(
-        'flex-1 w-full bg-slate-950 border border-slate-800 rounded p-3 font-mono text-xs resize-none',
+        // kluczowe: h-full + min-h-0
+        'h-full min-h-0 w-full bg-slate-950 border border-slate-800 rounded p-3 font-mono text-xs resize-none overflow-auto',
         className
       )}
       {...props}

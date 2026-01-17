@@ -24,6 +24,8 @@ async function postJson<TReq, TRes>(path: string, body: TReq): Promise<TRes> {
 
 export type Difficulty = 'easy' | 'medium' | 'hard'
 
+export type Provider = 'default' | 'openai' | 'ollama' | 'none'
+
 export interface SearchReq {
   query: string
   k?: number

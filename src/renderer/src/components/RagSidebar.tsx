@@ -1,7 +1,8 @@
 // src/renderer/src/components/RagSidebar.tsx
-import { ChangeEvent, useState } from 'react'
+import { ChangeEvent, useEffect, useState } from 'react'
 import { twMerge } from 'tailwind-merge'
-import { Difficulty, genMcq, genYn, searchRag, uploadFiles } from '../ragApi'
+import { Difficulty, QuestionWrapper, genMcq, genYn, searchRag, uploadFiles } from '../ragApi'
+import { upsertQuestion } from '../utils/questionsDb'
 
 type Mode = 'mcq' | 'yn' | 'search'
 
@@ -12,10 +13,20 @@ interface RagSidebarProps {
 export function RagSidebar({ onOutput }: RagSidebarProps) {
   const [mode, setMode] = useState<Mode>('mcq')
   const [difficulty, setDifficulty] = useState<Difficulty>('medium')
+
+  type Provider = 'default' | 'openai' | 'ollama' | 'none'
+
+  const [provider, setProvider] = useState<Provider>(() => {
+    return (localStorage.getItem('rag_provider') as Provider) ?? 'default'
+  })
   const [topic, setTopic] = useState('')
   const [loading, setLoading] = useState(false)
   const [files, setFiles] = useState<File[]>([])
   const [lastUploadInfo, setLastUploadInfo] = useState<string | null>(null)
+
+  useEffect(() => {
+    localStorage.setItem('rag_provider', provider)
+  }, [provider])
 
   const handleRun = async () => {
     const trimmed = topic.trim()
@@ -37,6 +48,10 @@ export function RagSidebar({ onOutput }: RagSidebarProps) {
         data = await genMcq(trimmed || 'przegląd materiału', difficulty)
       } else {
         data = await genYn(trimmed || 'przegląd materiału', difficulty)
+      }
+
+      if (mode === 'mcq' || mode === 'yn') {
+        await upsertQuestion(data as QuestionWrapper)
       }
 
       onOutput(JSON.stringify(data, null, 2))
@@ -147,6 +162,22 @@ export function RagSidebar({ onOutput }: RagSidebarProps) {
             <option value="easy">easy</option>
             <option value="medium">medium</option>
             <option value="hard">hard</option>
+          </select>
+        </div>
+      )}
+
+      {mode !== 'search' && (
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-slate-400">Provider (źródło generowania)</span>
+          <select
+            className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm"
+            value={provider}
+            onChange={(e) => setProvider(e.target.value as Provider)}
+          >
+            <option value="default">default (z backendu / ENV)</option>
+            <option value="openai">openai</option>
+            <option value="ollama">ollama</option>
+            <option value="none">none (fallback/offline)</option>
           </select>
         </div>
       )}
