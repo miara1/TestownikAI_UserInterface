@@ -14,7 +14,7 @@ function App() {
 
   const [activeTopic, setActiveTopic] = useState<string | null>(null)
 
-  const [isJsonOpen, setIsJsonOpen] = useState(true)
+  const [isJsonOpen, setIsJsonOpen] = useState(false)
 
   return (
     <RootLayout className="bg-slate-900 text-slate-100">
