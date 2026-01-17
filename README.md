@@ -14,7 +14,7 @@ UI umożliwia:
 ## Wymagania
 
 - **Node.js 18+** (zalecane).
-- **Yarn 4** (repo ma `packageManager: yarn@4.10.3`).
+- **npm** (UI uruchamiasz przez `npm run ...`).
 - Uruchomiony backend RAG (domyślnie `http://127.0.0.1:8000`).
 
 ---
@@ -45,17 +45,10 @@ VITE_RAG_API_URL=http://127.0.0.1:8000
 
 ## Instalacja
 
-### 1) Włącz Yarn przez Corepack (zalecane)
+Zainstaluj zależności:
 
 ```bash
-corepack enable
-corepack prepare yarn@4.10.3 --activate
-```
-
-### 2) Zainstaluj zależności
-
-```bash
-yarn install
+npm install
 ```
 
 Po instalacji uruchomi się też `postinstall`:
@@ -68,7 +61,7 @@ Po instalacji uruchomi się też `postinstall`:
 Najpierw uruchom backend (FastAPI) na tym samym adresie co w `.env`, a potem UI:
 
 ```bash
-yarn dev
+npm run dev
 ```
 
 To uruchamia:
@@ -85,7 +78,7 @@ Repo jest przygotowane do budowania paczek przez `electron-builder`.
 ### Build aplikacji
 
 ```bash
-yarn build
+npm run build
 ```
 
 Wykonuje:
@@ -95,41 +88,41 @@ Wykonuje:
 ### Build „unpacked” (folder z aplikacją)
 
 ```bash
-yarn build:unpack
+npm run build:unpack
 ```
 
 ### Windows
 
 ```bash
-yarn build:win
+npm run build:win
 ```
 
 ### macOS
 
 ```bash
-yarn build:mac
+npm run build:mac
 ```
 
 ### Linux
 
 ```bash
-yarn build:linux
+npm run build:linux
 ```
 
 ---
 
 ## Skrypty (package.json)
 
-- `yarn dev` — uruchomienie developerskie (electron-vite dev)
-- `yarn start` — preview (electron-vite preview)
-- `yarn build` — typecheck + build (electron-vite build)
-- `yarn build:unpack` — build + `electron-builder --dir`
-- `yarn build:win` — build + paczka Windows
-- `yarn build:mac` — build + paczka macOS
-- `yarn build:linux` — build + paczka Linux
-- `yarn lint` — ESLint (cache)
-- `yarn format` — Prettier
-- `yarn typecheck` — tsc dla node i web
+- `npm run dev` — uruchomienie developerskie (electron-vite dev)
+- `npm run start` — preview (electron-vite preview)
+- `npm run build` — typecheck + build (electron-vite build)
+- `npm run build:unpack` — build + `electron-builder --dir`
+- `npm run build:win` — build + paczka Windows
+- `npm run build:mac` — build + paczka macOS
+- `npm run build:linux` — build + paczka Linux
+- `npm run lint` — ESLint (cache)
+- `npm run format` — Prettier
+- `npm run typecheck` — tsc dla node i web
 
 ---
 
@@ -219,14 +212,12 @@ W dev nie powinno to występować, ale jeśli backend działa na innym hoście/p
 - backend ma poprawnie ustawione CORS,
 - URL w `VITE_RAG_API_URL` jest zgodny z faktycznym adresem API.
 
-### 3) Yarn „nie ta wersja”
+### 3) Problemy z zależnościami natywnymi Electron
 
-Repo ma pinned Yarn w `packageManager`.
-Użyj:
+Po `npm install` uruchamia się `electron-builder install-app-deps`. Jeśli masz błędy (np. po aktualizacji Node/Electron), spróbuj ponownie:
 
 ```bash
-corepack enable
-corepack prepare yarn@4.10.3 --activate
+npx electron-builder install-app-deps
 ```
 
 ---
