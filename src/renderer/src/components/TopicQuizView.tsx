@@ -162,7 +162,8 @@ export function TopicQuizView({ topic, onBack }: Props) {
         ) : (
           <div className="flex flex-col gap-4">
             <div className="text-xs text-slate-400">
-              {idx + 1} / {questions.length} • typ: {current.question.kind}
+              {idx + 1} / {questions.length} • typ: {current.question.kind} • trudność:{' '}
+              {String((current.question.metadata as any)?.difficulty ?? '—')}
             </div>
 
             <div className="text-base font-semibold leading-snug">{current.question.stem}</div>
